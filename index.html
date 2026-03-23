@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>불법 엽구 온라인 감시 대시보드</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <i class="fa-solid fa-shield-halved logo-icon"></i>
+                <h2>엽구 감시 레이더</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-tab="dashboard">
+                    <i class="fa-solid fa-chart-line"></i>
+                    <span>대시보드 총괄</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="manual-entry">
+                    <i class="fa-solid fa-pen-to-square"></i>
+                    <span>수동 적발 등록</span>
+                </a>
+                <a href="#" class="nav-item" data-tab="report-export">
+                    <i class="fa-solid fa-file-export"></i>
+                    <span>보고서 추출 (HWP)</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <p>야생생물관리협회<br>불법 엽구 감시 시스템</p>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="welcome-text">
+                    <h1>현황판</h1>
+                    <p class="date-display" id="currentDate"></p>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-warning" id="resetDataBtn"
+                        style="margin-right: 10px; background-color: #f39c12; color: white;">
+                        <i class="fa-solid fa-rotate-left"></i> 적발 건수 초기화
+                    </button>
+                    <button class="btn btn-primary" id="runScraperBtn">
+                        <i class="fa-solid fa-magnifying-glass-arrow-right"></i> 자동 탐색 실행
+                    </button>
+                </div>
+            </header>
+
+            <!-- Dashboard Tab -->
+            <section id="tab-dashboard" class="tab-pane active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                        <div class="stat-info">
+                            <h3>이번 달 총 적발 건수</h3>
+                            <p class="stat-value" id="totalCount">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon danger"><i class="fa-solid fa-ban"></i></div>
+                        <div class="stat-info">
+                            <h3>올무 / 창애 발견</h3>
+                            <p class="stat-value" id="snareCount">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon info"><i class="fa-solid fa-box-open"></i></div>
+                        <div class="stat-info">
+                            <h3>포획틀 발견</h3>
+                            <p class="stat-value" id="trapCount">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon other"><i class="fa-solid fa-circle-exclamation"></i></div>
+                        <div class="stat-info">
+                            <h3>기타 불법 엽구</h3>
+                            <p class="stat-value" id="otherCount">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="recent-list-container">
+                    <div class="list-header">
+                        <h2>최근 적발 목록 (자동/수동 종합)</h2>
+                        <button class="btn btn-secondary btn-sm" id="toggleAllBtn" style="margin-top: 8px; font-size: 0.8rem; padding: 6px 14px;">
+                            <i class="fa-solid fa-list"></i> 전체 목록 보기
+                        </button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>플랫폼명</th>
+                                    <th>품목</th>
+                                    <th>판매자 인적사항</th>
+                                    <th>게시물 URL</th>
+                                    <th>적발일</th>
+                                    <th>관리</th>
+                                </tr>
+                            </thead>
+                            <tbody id="monitoringList">
+                                <!-- Data will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Manual Entry Tab -->
+            <section id="tab-manual-entry" class="tab-pane">
+                <div class="form-container">
+                    <h2>수동 적발 내역 등록</h2>
+                    <p>자동 검색으로 찾지 못한 판매처를 직접 등록합니다.</p>
+
+                    <form id="recordForm" class="entry-form">
+                        <div class="form-group">
+                            <label for="platform">플랫폼명 (예: 당근마켓, 중고나라, 자체사이트 등)</label>
+                            <input type="text" id="platform" required placeholder="플랫폼 이름을 입력하세요">
+                        </div>
+                        <div class="form-group">
+                            <label for="item">품목</label>
+                            <select id="item" required>
+                                <option value="" disabled selected>품목을 선택하세요</option>
+                                <option value="올무 (스프링올무 포함)">올무 (스프링올무 포함)</option>
+                                <option value="창애">창애</option>
+                                <option value="포획틀">포획틀</option>
+                                <option value="기타 불법 엽구">기타 불법 엽구</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>판매자 인적사항</label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;">
+                                <input type="text" id="seller_name" required placeholder="업체명 (상호명)">
+                                <input type="text" id="seller_rep" required placeholder="대표자 성명">
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 8px;">
+                                <input type="text" id="seller_address" required placeholder="주소">
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 8px;">
+                                <input type="text" id="seller_phone" required placeholder="연락처 (전화번호)">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="url">게시물 URL (링크)</label>
+                            <input type="url" id="url" required placeholder="https://...">
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary" id="clearFormBtn">초기화</button>
+                            <button type="submit" class="btn btn-primary">등록하기</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Report Export Tab -->
+            <section id="tab-report-export" class="tab-pane">
+                <div class="report-container">
+                    <h2>한글(HWP) 보고서 추출</h2>
+                    <p>아래 생성된 표를 그대로 드래그하여 복사(Ctrl+C)한 뒤, 한글(HWP) 문서에 붙여넣기(Ctrl+V) 하시면 됩니다.</p>
+
+                    <div class="report-controls">
+                        <select id="reportMonth" class="month-select">
+                            <!-- Months populated by JS -->
+                        </select>
+                        <button class="btn btn-success" id="copyTableBtn">
+                            <i class="fa-regular fa-copy"></i> 보고서 전체 복사하기
+                        </button>
+                    </div>
+
+                    <div id="hwpExportArea" class="hwp-table-container"
+                        style="background: white; padding: 2rem; border: 1px solid #ddd; margin-top: 1rem;">
+                        <div id="hwpSummaryInfo"
+                            style="margin-bottom: 20px; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; line-height: 1.6; color: #000;">
+                            <h3 style="text-align: center; margin-bottom: 20px; font-size: 1.5rem;" id="hwpReportTitle">
+                                월별 불법 엽구류 온라인 적발 보고</h3>
+                            <p style="font-weight: bold; margin-bottom: 8px;">1. 총괄 현황</p>
+                            <ul style="list-style-type: none; padding-left: 10px; margin-bottom: 20px;">
+                                <li>- 총 적발 건수: <span id="hwpTotalCount" style="font-weight: bold;">0</span>건</li>
+                                <li>- 올무 / 창애: <span id="hwpSnareCount">0</span>건</li>
+                                <li>- 포획틀: <span id="hwpTrapCount">0</span>건</li>
+                                <li>- 기타 불법 엽구: <span id="hwpOtherCount">0</span>건</li>
+                            </ul>
+                            <p style="font-weight: bold; margin-bottom: 8px;">2. 세부 적발 내역</p>
+                        </div>
+                        <table id="hwpExportTable" class="hwp-style-table"
+                            style="width: 100%; border-collapse: collapse; border: 1px solid #000;">
+                            <thead>
+                                <tr>
+                                    <th rowspan="2">플랫폼명</th>
+                                    <th rowspan="2">품목</th>
+                                    <th rowspan="2">게시물URL</th>
+                                    <th colspan="4">판매자 인적사항</th>
+                                </tr>
+                                <tr>
+                                    <th>업체명</th>
+                                    <th>대표자</th>
+                                    <th>주소</th>
+                                    <th>연락처</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hwpTableBody">
+                                <!-- Data populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
