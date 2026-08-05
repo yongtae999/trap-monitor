@@ -37,15 +37,17 @@ LAST_RUN_FILE = os.path.join(DIRECTORY, "data", "last_run.json")
 os.makedirs(os.path.join(DIRECTORY, "logs"), exist_ok=True)
 DB_LOCK = threading.Lock()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(os.path.join(DIRECTORY, "logs", "server.log"), encoding="utf-8"),
-        logging.StreamHandler(),
-    ],
-)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("trap_monitor.server")
+logger.setLevel(logging.INFO)
+logger.propagate = False
+if not logger.handlers:
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    file_handler = logging.FileHandler(os.path.join(DIRECTORY, "logs", "server.log"), encoding="utf-8")
+    stream_handler = logging.StreamHandler()
+    file_handler.setFormatter(formatter)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
 
 
 def _load_all_records() -> list:
@@ -126,6 +128,16 @@ def _start_scheduler():
 
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
+
+
+def _filter_enforceable_report_records(report_data: list) -> list:
+    """보고서에는 확정된 국내 판매자 자료만 포함합니다."""
+    enforceable = []
+    for raw in report_data if isinstance(report_data, list) else []:
+        record = normalize_record(raw)
+        if record.get("status") == "confirmed" and record.get("enforcement_status") == "actionable":
+            enforceable.append(record)
+    return enforceable
 
 
 def _generate_excel(month_str: str, report_data: list) -> bytes:
@@ -377,7 +389,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "last_seen": now,
                     "reviewed_at": now,
                     "review_note": body.get("review_note", "수동 등록"),
+                    "seller_jurisdiction_override": body.get("seller_jurisdiction_override", ""),
                 })
+                if record.get("enforcement_status") != "actionable":
+                    self._send_json(400, {
+                        "status": "error",
+                        "message": "수동 적발 확정에는 국내 사업자번호·주소·전화번호 중 하나가 필요합니다.",
+                    })
+                    return
                 records = _load_all_records()
                 key = record.get("canonical_key") or canonical_product_key(url) or record["id"]
                 found = False
@@ -404,10 +423,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     self._send_json(400, {"status": "error", "message": "올바른 검토 상태가 필요합니다."})
                     return
                 records = _load_all_records()
-                target = next((record for record in records if record.get("id") == record_id), None)
-                if not target:
+                target_index = next((idx for idx, record in enumerate(records) if record.get("id") == record_id), None)
+                if target_index is None:
                     self._send_json(404, {"status": "error", "message": "대상을 찾을 수 없습니다."})
                     return
+                target = records[target_index]
                 target["status"] = status
                 target["review_note"] = str(body.get("review_note", target.get("review_note", ""))).strip()
                 target["reviewed_at"] = datetime.now().isoformat(timespec="seconds")
@@ -418,8 +438,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if isinstance(body.get("seller_info"), dict):
                     target["seller_info"] = _seller_from_payload(body, target.get("url", ""))
                     target["seller"] = seller_to_legacy_text(target["seller_info"])
+                override = str(body.get("seller_jurisdiction_override", "")).strip().lower()
+                if override:
+                    target["seller_jurisdiction_override"] = override
+                else:
+                    target.pop("seller_jurisdiction_override", None)
+                target = normalize_record(target)
+                if status == "confirmed" and target.get("enforcement_status") != "actionable":
+                    self._send_json(400, {
+                        "status": "error",
+                        "message": "국내 판매자 근거가 확인된 경우에만 단속 대상으로 확정할 수 있습니다.",
+                    })
+                    return
+                records[target_index] = target
                 _save_all_records(records)
-                self._send_json(200, {"status": "success", "record": normalize_record(target)})
+                self._send_json(200, {"status": "success", "record": target})
             except Exception as exc:
                 logger.exception("검토 저장 오류")
                 self._send_json(500, {"status": "error", "message": str(exc)})
@@ -476,10 +509,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body = self._read_json_body()
 
             month_str = body.get("month", "")
-            report_data = body.get("data", [])
+            report_data = _filter_enforceable_report_records(body.get("data", []))
 
             if not month_str or not report_data:
-                self._send_json(400, {"status": "error", "message": "month와 data가 필요합니다."})
+                self._send_json(400, {
+                    "status": "error",
+                    "message": "해당 월에 확정된 국내 단속 대상 자료가 없습니다.",
+                })
                 return
 
             try:

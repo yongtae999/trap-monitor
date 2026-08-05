@@ -171,6 +171,24 @@ SPECIFIC_WILDLIFE_TARGET_TERMS = [
     "멧돼지", "고라니", "너구리", "오소리", "뉴트리아", "족제비", "들짐승",
 ]
 
+DOMESTIC_ADDRESS_PATTERN = re.compile(
+    r"(?:대한민국|서울(?:특별시)?|부산(?:광역시)?|대구(?:광역시)?|인천(?:광역시)?|"
+    r"광주(?:광역시)?|대전(?:광역시)?|울산(?:광역시)?|세종(?:특별자치시)?|"
+    r"경기(?:도)?|강원(?:특별자치도|도)?|충청북도|충청남도|충북|충남|"
+    r"전북(?:특별자치도|도)?|전남|전라남도|경북|경상북도|경남|경상남도|"
+    r"제주(?:특별자치도|도)?)",
+    re.I,
+)
+FOREIGN_ADDRESS_PATTERN = re.compile(
+    r"(?:\bchina\b|people'?s republic of china|중국|中国|\bjapan\b|일본|日本|"
+    r"united states|\busa\b|미국|\bvietnam\b|베트남|\bthailand\b|태국|"
+    r"\btaiwan\b|대만|hong kong|홍콩|\bsingapore\b|싱가포르|"
+    r"guangzhou|xiamen|dalian|fujian|shandong|yunnan|hunan|jilin|liaoning|"
+    r"beijing|shanghai|guangdong)",
+    re.I,
+)
+JURISDICTION_VALUES = {"domestic", "foreign", "unknown"}
+
 
 def _update_source_health(
     source: str,
@@ -906,6 +924,65 @@ def assess_risk(record: dict) -> dict:
     }
 
 
+def assess_seller_jurisdiction(record: dict) -> dict:
+    """플랫폼이 아니라 공개된 실제 판매자 정보를 기준으로 국내 단속 가능성을 판정합니다."""
+    override = _clean_text(record.get("seller_jurisdiction_override", "")).lower()
+    if override in JURISDICTION_VALUES:
+        status = {
+            "domestic": "actionable",
+            "foreign": "excluded_foreign",
+            "unknown": "seller_verification_needed",
+        }[override]
+        return {
+            "seller_jurisdiction": override,
+            "jurisdiction_confidence": "manual",
+            "jurisdiction_reasons": ["사용자가 판매자 관할을 직접 판정"],
+            "enforcement_status": status,
+        }
+
+    seller = record.get("seller_info") or {}
+    address = _clean_text(seller.get("address", ""))
+    phone = _clean_text(seller.get("phone", ""))
+    business_digits = re.sub(r"\D", "", seller.get("business_number", ""))
+    phone_digits = re.sub(r"\D", "", phone)
+
+    if len(business_digits) == 10:
+        return {
+            "seller_jurisdiction": "domestic",
+            "jurisdiction_confidence": "verified",
+            "jurisdiction_reasons": ["국내 사업자등록번호 확인"],
+            "enforcement_status": "actionable",
+        }
+    if address and DOMESTIC_ADDRESS_PATTERN.search(address):
+        return {
+            "seller_jurisdiction": "domestic",
+            "jurisdiction_confidence": "strong",
+            "jurisdiction_reasons": ["판매자 국내 주소 확인"],
+            "enforcement_status": "actionable",
+        }
+    if phone and (phone.startswith("+82") or phone_digits.startswith("0") or re.match(r"1[5-8]\d{2}", phone_digits)):
+        return {
+            "seller_jurisdiction": "domestic",
+            "jurisdiction_confidence": "probable",
+            "jurisdiction_reasons": ["판매자 국내 전화번호 확인"],
+            "enforcement_status": "actionable",
+        }
+    if address and FOREIGN_ADDRESS_PATTERN.search(address):
+        return {
+            "seller_jurisdiction": "foreign",
+            "jurisdiction_confidence": "strong",
+            "jurisdiction_reasons": ["판매자 외국 주소 확인"],
+            "enforcement_status": "excluded_foreign",
+        }
+
+    return {
+        "seller_jurisdiction": "unknown",
+        "jurisdiction_confidence": "none",
+        "jurisdiction_reasons": ["판매자 국내·외국 소재를 입증할 공개정보 부족"],
+        "enforcement_status": "seller_verification_needed",
+    }
+
+
 def normalize_record(record: dict) -> dict:
     record = dict(record or {})
     url = _safe_url(record.get("final_url") or record.get("url"))
@@ -932,6 +1009,7 @@ def normalize_record(record: dict) -> dict:
     normalized_seller["source_url"] = _safe_url(seller_info.get("source_url") or url)
     record["seller_info"] = normalized_seller
     record["seller"] = seller_to_legacy_text(normalized_seller)
+    record.update(assess_seller_jurisdiction(record))
 
     score_info = score_relevance(record)
     for key, value in score_info.items():

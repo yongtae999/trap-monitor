@@ -4,6 +4,7 @@ const MIGRATION_KEY = 'trap_monitor_server_migrated_v2';
 let records = [];
 let activeFilter = 'candidate';
 let activeRiskFilter = 'all';
+let activeJurisdictionFilter = 'domestic';
 
 const STATUS_META = {
     candidate: { label: '검토 대기', className: 'status-candidate' },
@@ -37,6 +38,12 @@ const RISK_META = {
     high: { label: '고위험', className: 'risk-high' },
     medium: { label: '검토 필요', className: 'risk-medium' },
     low: { label: '낮음', className: 'risk-low' },
+};
+
+const JURISDICTION_META = {
+    domestic: { label: '국내 단속 가능', className: 'jurisdiction-domestic' },
+    foreign: { label: '외국 판매자', className: 'jurisdiction-foreign' },
+    unknown: { label: '판매자 확인 필요', className: 'jurisdiction-unknown' },
 };
 
 async function api(path, options = {}) {
@@ -109,20 +116,26 @@ function renderStats() {
     const now = new Date();
     const confirmedThisMonth = records.filter(record => {
         const date = new Date(record.reviewed_at || record.date);
-        return record.status === 'confirmed'
+        return record.status === 'confirmed' && record.enforcement_status === 'actionable'
             && date.getFullYear() === now.getFullYear()
             && date.getMonth() === now.getMonth();
     }).length;
-    const candidateCount = records.filter(record => record.status === 'candidate').length;
+    const candidateCount = records.filter(record =>
+        record.status === 'candidate' && record.enforcement_status === 'actionable'
+    ).length;
     const excludedCount = records.filter(record => ['rejected', 'auto_rejected'].includes(record.status)).length;
     const sellerMissingCount = records.filter(record =>
-        ['candidate', 'confirmed'].includes(record.status) && sellerCompleteness(record.seller_info) < 3
+        ['candidate', 'confirmed'].includes(record.status) && record.seller_jurisdiction === 'unknown'
+    ).length;
+    const foreignSellerCount = records.filter(record =>
+        ['candidate', 'confirmed'].includes(record.status) && record.seller_jurisdiction === 'foreign'
     ).length;
     const highRiskCount = records.filter(record =>
-        record.status === 'candidate' && record.risk_level === 'high'
+        record.status === 'candidate' && record.risk_level === 'high' && record.enforcement_status === 'actionable'
     ).length;
     const duplicateClusters = new Set(records
-        .filter(record => ['candidate', 'confirmed'].includes(record.status) && Number(record.duplicate_count || 1) > 1)
+        .filter(record => ['candidate', 'confirmed'].includes(record.status)
+            && record.enforcement_status === 'actionable' && Number(record.duplicate_count || 1) > 1)
         .map(record => record.cluster_id)
         .filter(Boolean));
 
@@ -130,6 +143,7 @@ function renderStats() {
     document.getElementById('candidateCount').textContent = candidateCount;
     document.getElementById('confirmedCount').textContent = confirmedThisMonth;
     document.getElementById('sellerMissingCount').textContent = sellerMissingCount;
+    document.getElementById('foreignSellerCount').textContent = foreignSellerCount;
     document.getElementById('excludedCount').textContent = excludedCount;
     document.getElementById('duplicateClusterCount').textContent = duplicateClusters.size;
 }
@@ -139,9 +153,19 @@ function matchesFilter(record) {
         || (activeFilter === 'rejected' && ['rejected', 'auto_rejected'].includes(record.status))
         || record.status === activeFilter;
     if (!statusMatches) return false;
+    if (activeJurisdictionFilter !== 'all' && record.seller_jurisdiction !== activeJurisdictionFilter) return false;
     if (activeRiskFilter === 'all') return true;
     if (activeRiskFilter === 'duplicates') return Number(record.duplicate_count || 1) > 1;
     return record.risk_level === activeRiskFilter;
+}
+
+function createJurisdictionCell(record) {
+    const cell = document.createElement('td');
+    const meta = JURISDICTION_META[record.seller_jurisdiction] || JURISDICTION_META.unknown;
+    const badge = appendText(cell, 'span', meta.label, `jurisdiction-badge ${meta.className}`);
+    badge.title = (record.jurisdiction_reasons || []).join('\n');
+    appendText(cell, 'p', (record.jurisdiction_reasons || ['판정 근거 없음'])[0], 'cell-subtext');
+    return cell;
 }
 
 function createStatusBadge(record) {
@@ -273,7 +297,7 @@ function renderMonitoringList() {
     if (!visible.length) {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 8;
+        cell.colSpan = 9;
         cell.className = 'empty-state';
         cell.textContent = activeFilter === 'candidate' ? '현재 검토 대기 후보가 없습니다.' : '해당 상태의 자료가 없습니다.';
         row.appendChild(cell);
@@ -290,6 +314,7 @@ function renderMonitoringList() {
         row.appendChild(createListingCell(record));
         row.appendChild(createScoreCell(record));
         row.appendChild(createSellerCell(record));
+        row.appendChild(createJurisdictionCell(record));
 
         const linkCell = document.createElement('td');
         const link = document.createElement('a');
@@ -325,6 +350,11 @@ function setRiskFilter(filter) {
     renderMonitoringList();
 }
 
+function setJurisdictionFilter(filter) {
+    activeJurisdictionFilter = filter;
+    renderMonitoringList();
+}
+
 function openReviewModal(recordId) {
     const record = records.find(item => item.id === recordId);
     if (!record) return;
@@ -349,6 +379,9 @@ function openReviewModal(recordId) {
     document.getElementById('review_business_number').value = seller.business_number || '';
     document.getElementById('review_seller_address').value = seller.address || '';
     document.getElementById('review_seller_source').value = seller.source_url || record.url || '';
+    document.getElementById('review_jurisdiction_summary').textContent =
+        `${(JURISDICTION_META[record.seller_jurisdiction] || JURISDICTION_META.unknown).label} · ${(record.jurisdiction_reasons || ['판정 근거 없음'])[0]}`;
+    document.getElementById('review_seller_jurisdiction_override').value = record.seller_jurisdiction_override || '';
     document.getElementById('review_note').value = record.review_note || '';
     document.getElementById('reviewModal').classList.add('open');
     document.getElementById('reviewModal').setAttribute('aria-hidden', 'false');
@@ -366,6 +399,7 @@ function reviewPayload(status) {
         title: document.getElementById('review_title').value.trim(),
         item: document.getElementById('review_item').value,
         review_note: document.getElementById('review_note').value.trim(),
+        seller_jurisdiction_override: document.getElementById('review_seller_jurisdiction_override').value,
         seller_info: {
             name: document.getElementById('review_seller_name').value.trim(),
             store_name: document.getElementById('review_seller_store_name').value.trim(),
@@ -444,7 +478,7 @@ function setupManualForm() {
 }
 
 function confirmedRecords() {
-    return records.filter(record => record.status === 'confirmed');
+    return records.filter(record => record.status === 'confirmed' && record.enforcement_status === 'actionable');
 }
 
 function initReportTab() {
@@ -507,7 +541,7 @@ function renderReportList() {
         tbody.appendChild(row);
     }
 
-    document.getElementById('hwpReportTitle').textContent = `${selectedMonth || '월별'} 불법 엽구류 온라인 확정 보고`;
+    document.getElementById('hwpReportTitle').textContent = `${selectedMonth || '월별'} 불법 엽구류 국내 판매자 단속 보고`;
     document.getElementById('hwpTotalCount').textContent = filtered.length;
     document.getElementById('hwpSnareCount').textContent = snareCount;
     document.getElementById('hwpTrapCount').textContent = trapCount;
@@ -674,6 +708,7 @@ async function boot() {
         button.addEventListener('click', () => setActiveFilter(button.dataset.filter));
     });
     document.getElementById('riskFilter').addEventListener('change', event => setRiskFilter(event.target.value));
+    document.getElementById('jurisdictionFilter').addEventListener('change', event => setJurisdictionFilter(event.target.value));
     document.getElementById('currentDate').textContent = new Date().toLocaleDateString('ko-KR', {
         year: 'numeric', month: 'long', day: 'numeric', weekday: 'short',
     });
@@ -683,7 +718,7 @@ async function boot() {
         await loadSchedulerStatus();
     } catch (error) {
         console.error(error);
-        document.getElementById('monitoringList').innerHTML = '<tr><td colspan="8" class="empty-state">서버에 연결할 수 없습니다. 실행.bat로 대시보드를 시작해주세요.</td></tr>';
+        document.getElementById('monitoringList').innerHTML = '<tr><td colspan="9" class="empty-state">서버에 연결할 수 없습니다. 실행.bat로 대시보드를 시작해주세요.</td></tr>';
     }
 }
 

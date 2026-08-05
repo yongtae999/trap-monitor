@@ -307,6 +307,93 @@ class ScraperRuleTests(unittest.TestCase):
         })
         self.assertEqual(result["suggested_status"], "candidate")
 
+    def test_domestic_business_number_is_actionable(self):
+        result = scraper.normalize_record({
+            "url": "https://market.example.com/products/10",
+            "title": "스프링 올무 판매",
+            "seller_info": {
+                "name": "산들상회", "business_number": "123-45-67890",
+                "address": "", "phone": "", "confidence": "manual",
+            },
+        })
+        self.assertEqual(result["seller_jurisdiction"], "domestic")
+        self.assertEqual(result["enforcement_status"], "actionable")
+        self.assertIn("사업자등록번호", result["jurisdiction_reasons"][0])
+
+    def test_foreign_seller_on_korean_market_is_excluded(self):
+        result = scraper.normalize_record({
+            "url": "https://www.11st.co.kr/products/8886185964",
+            "title": "멧돼지 덫 올무 포획 트랩",
+            "seller_info": {
+                "name": "Dalian Junyouqi Department Store Co., Ltd",
+                "address": "Dalian, Liaoning, 116000 China",
+                "phone": "", "business_number": "", "confidence": "platform_public_info",
+            },
+        })
+        self.assertEqual(result["seller_jurisdiction"], "foreign")
+        self.assertEqual(result["enforcement_status"], "excluded_foreign")
+
+    def test_domestic_purchase_agent_remains_actionable(self):
+        result = scraper.normalize_record({
+            "url": "https://www.11st.co.kr/products/8744871620",
+            "title": "멧돼지 올무 [해외구매]",
+            "seller_info": {
+                "name": "티에스이커머스",
+                "address": "경기도 화성시 동탄기흥로 602",
+                "phone": "", "business_number": "", "confidence": "platform_public_info",
+            },
+        })
+        self.assertEqual(result["seller_jurisdiction"], "domestic")
+        self.assertEqual(result["enforcement_status"], "actionable")
+
+    def test_marketplace_name_alone_does_not_prove_jurisdiction(self):
+        result = scraper.normalize_record({
+            "url": "https://m.shoppinghow.kakao.com/m/product/E5274406319/",
+            "title": "너구리 포획틀 [해외구매]",
+            "seller_info": {
+                "name": "옥션", "address": "", "phone": "", "business_number": "",
+                "confidence": "comparison_merchant",
+            },
+        })
+        self.assertEqual(result["seller_jurisdiction"], "unknown")
+        self.assertEqual(result["enforcement_status"], "seller_verification_needed")
+
+    def test_manual_jurisdiction_override_is_preserved(self):
+        result = scraper.normalize_record({
+            "url": "https://market.example.com/products/11",
+            "title": "스프링 올무 판매",
+            "seller_jurisdiction_override": "foreign",
+            "seller_info": {
+                "name": "판매자", "address": "서울특별시 중구", "confidence": "manual",
+            },
+        })
+        self.assertEqual(result["seller_jurisdiction"], "foreign")
+        self.assertEqual(result["jurisdiction_confidence"], "manual")
+
+    def test_report_filter_keeps_only_confirmed_domestic_sellers(self):
+        import app as app_module
+
+        rows = [
+            {
+                "url": "https://shop.example.com/products/1", "status": "confirmed",
+                "title": "스프링 올무 판매",
+                "seller_info": {"name": "국내상회", "address": "서울특별시 중구"},
+            },
+            {
+                "url": "https://shop.example.com/products/2", "status": "confirmed",
+                "title": "스프링 올무 판매",
+                "seller_info": {"name": "Foreign Store", "address": "Dalian, Liaoning, China"},
+            },
+            {
+                "url": "https://shop.example.com/products/3", "status": "candidate",
+                "title": "스프링 올무 판매",
+                "seller_info": {"name": "국내상회", "address": "경기도 수원시"},
+            },
+        ]
+        filtered = app_module._filter_enforceable_report_records(rows)
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["seller_info"]["name"], "국내상회")
+
 
 if __name__ == "__main__":
     unittest.main()
