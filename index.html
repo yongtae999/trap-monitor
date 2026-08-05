@@ -32,7 +32,7 @@
                 </a>
                 <a href="#" class="nav-item" data-tab="report-export">
                     <i class="fa-solid fa-file-export"></i>
-                    <span>보고서 추출 (HWP)</span>
+                    <span>보고서 추출</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
@@ -48,6 +48,10 @@
                     <p class="date-display" id="currentDate"></p>
                 </div>
                 <div class="header-actions">
+                    <div class="system-status">
+                        <span id="schedulerStatus"></span>
+                        <span id="sourceHealthStatus">검색원 상태 확인 중</span>
+                    </div>
                     <button class="btn btn-warning" id="resetDataBtn"
                         style="margin-right: 10px; background-color: #f39c12; color: white;">
                         <i class="fa-solid fa-rotate-left"></i> 적발 건수 초기화
@@ -61,52 +65,81 @@
             <!-- Dashboard Tab -->
             <section id="tab-dashboard" class="tab-pane active">
                 <div class="stats-grid">
+                    <div class="stat-card risk-high-card">
+                        <div class="stat-icon risk-high"><i class="fa-solid fa-bullseye"></i></div>
+                        <div class="stat-info">
+                            <h3>고위험 우선검토</h3>
+                            <p class="stat-value" id="highRiskCount">0</p>
+                        </div>
+                    </div>
                     <div class="stat-card">
                         <div class="stat-icon warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
                         <div class="stat-info">
-                            <h3>이번 달 총 적발 건수</h3>
-                            <p class="stat-value" id="totalCount">0</p>
+                            <h3>검토 대기 후보</h3>
+                            <p class="stat-value" id="candidateCount">0</p>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon danger"><i class="fa-solid fa-ban"></i></div>
                         <div class="stat-info">
-                            <h3>올무 / 창애 발견</h3>
-                            <p class="stat-value" id="snareCount">0</p>
+                            <h3>이번 달 확정</h3>
+                            <p class="stat-value" id="confirmedCount">0</p>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon info"><i class="fa-solid fa-box-open"></i></div>
                         <div class="stat-info">
-                            <h3>포획틀 발견</h3>
-                            <p class="stat-value" id="trapCount">0</p>
+                            <h3>판매자정보 보완 필요</h3>
+                            <p class="stat-value" id="sellerMissingCount">0</p>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon other"><i class="fa-solid fa-circle-exclamation"></i></div>
                         <div class="stat-info">
-                            <h3>기타 불법 엽구</h3>
-                            <p class="stat-value" id="otherCount">0</p>
+                            <h3>자동·수동 제외</h3>
+                            <p class="stat-value" id="excludedCount">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon duplicate"><i class="fa-solid fa-layer-group"></i></div>
+                        <div class="stat-info">
+                            <h3>유사상품 묶음</h3>
+                            <p class="stat-value" id="duplicateClusterCount">0</p>
                         </div>
                     </div>
                 </div>
 
                 <div class="recent-list-container">
                     <div class="list-header">
-                        <h2>최근 적발 목록 (자동/수동 종합)</h2>
-                        <button class="btn btn-secondary btn-sm" id="toggleAllBtn" style="margin-top: 8px; font-size: 0.8rem; padding: 6px 14px;">
-                            <i class="fa-solid fa-list"></i> 전체 목록 보기
-                        </button>
+                        <div>
+                            <h2>검색 결과 검토함</h2>
+                            <p class="list-description">자동 검색 결과는 검토 후 확정해야 통계와 보고서에 반영됩니다.</p>
+                        </div>
+                        <div class="review-filters" id="reviewFilters">
+                            <label class="risk-filter-label" for="riskFilter">위험도</label>
+                            <select id="riskFilter" class="risk-filter-select">
+                                <option value="all">전체</option>
+                                <option value="high">고위험</option>
+                                <option value="medium">검토 필요</option>
+                                <option value="duplicates">유사상품만</option>
+                            </select>
+                            <button class="filter-btn active" data-filter="candidate">검토 대기</button>
+                            <button class="filter-btn" data-filter="confirmed">확정</button>
+                            <button class="filter-btn" data-filter="rejected">제외</button>
+                            <button class="filter-btn" data-filter="all">전체</button>
+                        </div>
                     </div>
                     <div class="table-wrapper">
                         <table class="data-table">
                             <thead>
                                 <tr>
+                                    <th>상태</th>
                                     <th>플랫폼명</th>
-                                    <th>품목</th>
-                                    <th>판매자 인적사항</th>
+                                    <th>상품·근거</th>
+                                    <th>관련도</th>
+                                    <th>판매자정보</th>
                                     <th>게시물 URL</th>
-                                    <th>적발일</th>
+                                    <th>발견일</th>
                                     <th>관리</th>
                                 </tr>
                             </thead>
@@ -130,6 +163,10 @@
                             <input type="text" id="platform" required placeholder="플랫폼 이름을 입력하세요">
                         </div>
                         <div class="form-group">
+                            <label for="listing_title">상품명 또는 게시물 제목</label>
+                            <input type="text" id="listing_title" required placeholder="판매 게시물에 표시된 제목">
+                        </div>
+                        <div class="form-group">
                             <label for="item">품목</label>
                             <select id="item" required>
                                 <option value="" disabled selected>품목을 선택하세요</option>
@@ -142,14 +179,17 @@
                         <div class="form-group">
                             <label>판매자 인적사항</label>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;">
-                                <input type="text" id="seller_name" required placeholder="업체명 (상호명)">
-                                <input type="text" id="seller_rep" required placeholder="대표자 성명">
+                                <input type="text" id="seller_name" placeholder="업체명 (상호명)">
+                                <input type="text" id="seller_rep" placeholder="대표자 성명">
                             </div>
                             <div style="display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 8px;">
-                                <input type="text" id="seller_address" required placeholder="주소">
+                                <input type="text" id="seller_address" placeholder="주소">
                             </div>
                             <div style="display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 8px;">
-                                <input type="text" id="seller_phone" required placeholder="연락처 (전화번호)">
+                                <input type="text" id="seller_phone" placeholder="연락처 (전화번호)">
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 8px;">
+                                <input type="text" id="seller_business_number" placeholder="사업자등록번호 (확인된 경우)">
                             </div>
                         </div>
                         <div class="form-group">
@@ -167,15 +207,18 @@
             <!-- Report Export Tab -->
             <section id="tab-report-export" class="tab-pane">
                 <div class="report-container">
-                    <h2>한글(HWP) 보고서 추출</h2>
-                    <p>아래 생성된 표를 그대로 드래그하여 복사(Ctrl+C)한 뒤, 한글(HWP) 문서에 붙여넣기(Ctrl+V) 하시면 됩니다.</p>
+                    <h2>보고서 추출</h2>
+                    <p>월별 적발 데이터를 엑셀(.xlsx) 양식으로 다운로드하거나, 아래 표를 복사하여 한글(HWP)에 붙여넣기 할 수 있습니다.</p>
 
                     <div class="report-controls">
                         <select id="reportMonth" class="month-select">
                             <!-- Months populated by JS -->
                         </select>
-                        <button class="btn btn-success" id="copyTableBtn">
-                            <i class="fa-regular fa-copy"></i> 보고서 전체 복사하기
+                        <button class="btn btn-success" id="downloadExcelBtn" style="margin-right:8px;">
+                            <i class="fa-solid fa-file-excel"></i> 엑셀 양식 다운로드
+                        </button>
+                        <button class="btn btn-secondary" id="copyTableBtn">
+                            <i class="fa-regular fa-copy"></i> 표 복사 (HWP용)
                         </button>
                     </div>
 
@@ -218,6 +261,61 @@
                 </div>
             </section>
         </main>
+    </div>
+
+    <div class="modal-overlay" id="reviewModal" aria-hidden="true">
+        <div class="review-modal" role="dialog" aria-modal="true" aria-labelledby="reviewModalTitle">
+            <div class="modal-header">
+                <div>
+                    <p class="modal-eyebrow">후보 검토</p>
+                    <h2 id="reviewModalTitle">검색 결과 확인</h2>
+                </div>
+                <button type="button" class="modal-close" id="closeReviewModal" aria-label="닫기">&times;</button>
+            </div>
+            <form id="reviewForm" class="entry-form">
+                <input type="hidden" id="review_record_id">
+                <div class="review-risk-summary">
+                    <span id="review_risk_summary">위험도 확인 중</span>
+                    <span id="review_cluster_summary"></span>
+                </div>
+                <div class="form-group">
+                    <label for="review_title">상품·게시물 제목</label>
+                    <input type="text" id="review_title">
+                </div>
+                <div class="form-group">
+                    <label for="review_item">품목</label>
+                    <select id="review_item">
+                        <option value="올무 (스프링올무 포함)">올무 (스프링올무 포함)</option>
+                        <option value="창애">창애</option>
+                        <option value="포획틀">포획틀</option>
+                        <option value="기타 불법 엽구">기타 불법 엽구</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>판매자 공개정보</label>
+                    <div class="seller-grid">
+                        <input type="text" id="review_seller_name" placeholder="업체명">
+                        <input type="text" id="review_seller_store_name" placeholder="판매점명">
+                        <input type="text" id="review_seller_rep" placeholder="대표자">
+                        <input type="text" id="review_seller_phone" placeholder="연락처">
+                        <input type="text" id="review_business_number" placeholder="사업자등록번호">
+                    </div>
+                    <input type="text" id="review_seller_address" placeholder="주소">
+                    <input type="url" id="review_seller_source" placeholder="판매자정보 출처 URL">
+                </div>
+                <div class="form-group">
+                    <label for="review_note">검토 메모 또는 제외 사유</label>
+                    <textarea id="review_note" rows="3" placeholder="판단 근거를 남겨두면 다음 검색 개선에 활용할 수 있습니다."></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="autoEnrichBtn">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> 상품·판매자정보 자동 확인
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="rejectReviewBtn">관련 없음으로 제외</button>
+                    <button type="submit" class="btn btn-primary">확정 및 저장</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <script src="script.js"></script>
