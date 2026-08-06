@@ -5,3 +5,5 @@ __pycache__/
 google_service_account.json
 data/*.json
 !data/README.md
+logs/
+/server.log
