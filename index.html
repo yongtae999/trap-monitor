@@ -120,7 +120,7 @@
                     <div class="list-header">
                         <div>
                             <h2>검색 결과 검토함</h2>
-                            <p class="list-description">국내 판매자 근거가 있는 후보만 기본 표시하며, 소재 불명과 외국 판매자는 관할 필터로 분리합니다.</p>
+                            <p class="list-description">대전·충남·세종을 1순위, 서울·경기를 제외한 국내지역을 2순위로 표시합니다. 서울과 경기도는 각각 별도 탭에서 확인합니다.</p>
                         </div>
                         <div class="review-filters" id="reviewFilters">
                             <label class="risk-filter-label" for="jurisdictionFilter">관할</label>
@@ -143,6 +143,29 @@
                             <button class="filter-btn" data-filter="all">전체</button>
                         </div>
                     </div>
+                    <div class="region-tabs" id="regionTabs" role="tablist" aria-label="판매자 소재지 지역 분류">
+                        <button class="region-tab active" data-region="review_queue" role="tab" aria-selected="true">
+                            우선 검토(1·2순위) <span id="regionCountReview">0</span>
+                        </button>
+                        <button class="region-tab" data-region="daejeon_chungnam_sejong" role="tab" aria-selected="false">
+                            1순위 대전·충남·세종 <span id="regionCountPriority">0</span>
+                        </button>
+                        <button class="region-tab" data-region="other_domestic" role="tab" aria-selected="false">
+                            2순위 기타지역 <span id="regionCountOther">0</span>
+                        </button>
+                        <button class="region-tab region-tab-seoul" data-region="seoul" role="tab" aria-selected="false">
+                            서울 <span id="regionCountSeoul">0</span>
+                        </button>
+                        <button class="region-tab region-tab-gyeonggi" data-region="gyeonggi" role="tab" aria-selected="false">
+                            경기도 <span id="regionCountGyeonggi">0</span>
+                        </button>
+                        <button class="region-tab" data-region="unknown" role="tab" aria-selected="false">
+                            국내 소재지 미확인 <span id="regionCountUnknown">0</span>
+                        </button>
+                        <button class="region-tab" data-region="all" role="tab" aria-selected="false">
+                            전체 국내 <span id="regionCountAll">0</span>
+                        </button>
+                    </div>
                     <div class="table-wrapper">
                         <table class="data-table">
                             <thead>
@@ -152,7 +175,7 @@
                                     <th>상품·근거</th>
                                     <th>관련도</th>
                                     <th>판매자정보</th>
-                                    <th>판매자 관할</th>
+                                    <th>판매자 소재지·관할</th>
                                     <th>게시물 URL</th>
                                     <th>발견일</th>
                                     <th>관리</th>

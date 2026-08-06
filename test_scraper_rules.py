@@ -232,10 +232,14 @@ class ScraperRuleTests(unittest.TestCase):
 
     def test_free_search_plan_rotates_sources_without_paid_google(self):
         plan = scraper.build_free_search_plan(datetime(2026, 8, 5))
-        self.assertEqual(len(plan), 29)
+        self.assertEqual(len(plan), 38)
         self.assertEqual({item["source"] for item in plan}, {"naver_web", "naver_blog", "naver_cafe"})
         self.assertTrue(any("site:" in item["query"] for item in plan))
         self.assertTrue(any(item["sort"] == "date" for item in plan))
+        priority = [item for item in plan if item.get("priority_region_search")]
+        self.assertEqual(len(priority), 9)
+        self.assertEqual({item["search_region_target"] for item in priority}, {"대전", "충남", "세종"})
+        self.assertTrue(all(item.get("priority_region_search") for item in plan[:9]))
 
     def test_public_cafe_sale_post_can_become_a_candidate(self):
         record = {
@@ -345,6 +349,70 @@ class ScraperRuleTests(unittest.TestCase):
         })
         self.assertEqual(result["seller_jurisdiction"], "domestic")
         self.assertEqual(result["enforcement_status"], "actionable")
+        self.assertEqual(result["seller_region"], "gyeonggi")
+
+    def test_daejeon_chungnam_sejong_are_first_priority(self):
+        addresses = [
+            "대전광역시 유성구 대학로 1",
+            "충청남도 당진시 송악읍 틀모시로 737",
+            "세종특별자치시 한누리대로 2130",
+        ]
+        for index, address in enumerate(addresses):
+            with self.subTest(address=address):
+                result = scraper.normalize_record({
+                    "url": f"https://shop.example.com/products/priority-{index}",
+                    "title": "스프링 올무 판매",
+                    "seller_info": {"name": "판매상회", "address": address},
+                })
+                self.assertEqual(result["seller_region"], "daejeon_chungnam_sejong")
+                self.assertEqual(result["enforcement_priority"], 1)
+
+    def test_seoul_and_gyeonggi_are_separate_regions(self):
+        cases = [
+            ("서울특별시 강남구 테헤란로 1", "seoul"),
+            ("경기도 수원시 권선구 세화로 1", "gyeonggi"),
+        ]
+        for index, (address, expected) in enumerate(cases):
+            with self.subTest(address=address):
+                result = scraper.normalize_record({
+                    "url": f"https://shop.example.com/products/separate-{index}",
+                    "title": "스프링 올무 판매",
+                    "seller_info": {"name": "판매상회", "address": address},
+                })
+                self.assertEqual(result["seller_region"], expected)
+                self.assertIsNone(result["enforcement_priority"])
+
+    def test_road_name_does_not_override_leading_region(self):
+        cases = [
+            ("서울특별시 종로구 세종대로 1", "seoul"),
+            ("광주광역시 북구 무등로 1", "other_domestic"),
+        ]
+        for index, (address, expected) in enumerate(cases):
+            with self.subTest(address=address):
+                result = scraper.normalize_record({
+                    "url": f"https://shop.example.com/products/road-region-{index}",
+                    "title": "스프링 올무 판매",
+                    "seller_info": {"name": "판매상회", "address": address},
+                })
+                self.assertEqual(result["seller_region"], expected)
+
+    def test_other_domestic_region_is_second_priority(self):
+        result = scraper.normalize_record({
+            "url": "https://shop.example.com/products/other-region",
+            "title": "스프링 올무 판매",
+            "seller_info": {"name": "판매상회", "address": "대구광역시 서구 국채보상로 1"},
+        })
+        self.assertEqual(result["seller_region"], "other_domestic")
+        self.assertEqual(result["enforcement_priority"], 2)
+
+    def test_domestic_seller_without_address_needs_region_review(self):
+        result = scraper.normalize_record({
+            "url": "https://shop.example.com/products/unknown-region",
+            "title": "스프링 올무 판매",
+            "seller_info": {"name": "판매상회", "business_number": "123-45-67890"},
+        })
+        self.assertEqual(result["seller_jurisdiction"], "domestic")
+        self.assertEqual(result["seller_region"], "unknown")
 
     def test_marketplace_name_alone_does_not_prove_jurisdiction(self):
         result = scraper.normalize_record({

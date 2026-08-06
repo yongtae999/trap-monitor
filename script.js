@@ -5,6 +5,7 @@ let records = [];
 let activeFilter = 'candidate';
 let activeRiskFilter = 'all';
 let activeJurisdictionFilter = 'domestic';
+let activeRegionFilter = 'review_queue';
 
 const STATUS_META = {
     candidate: { label: '검토 대기', className: 'status-candidate' },
@@ -44,6 +45,15 @@ const JURISDICTION_META = {
     domestic: { label: '국내 단속 가능', className: 'jurisdiction-domestic' },
     foreign: { label: '외국 판매자', className: 'jurisdiction-foreign' },
     unknown: { label: '판매자 확인 필요', className: 'jurisdiction-unknown' },
+};
+
+const REGION_META = {
+    daejeon_chungnam_sejong: { label: '1순위 · 대전·충남·세종', className: 'region-priority' },
+    other_domestic: { label: '2순위 · 기타 국내지역', className: 'region-other-domestic' },
+    seoul: { label: '서울 · 별도', className: 'region-seoul' },
+    gyeonggi: { label: '경기도 · 별도', className: 'region-gyeonggi' },
+    unknown: { label: '소재지 미확인', className: 'region-unknown' },
+    foreign: { label: '해외', className: 'region-foreign' },
 };
 
 async function api(path, options = {}) {
@@ -148,23 +158,55 @@ function renderStats() {
     document.getElementById('duplicateClusterCount').textContent = duplicateClusters.size;
 }
 
-function matchesFilter(record) {
+function matchesStatusAndRisk(record) {
     const statusMatches = activeFilter === 'all'
         || (activeFilter === 'rejected' && ['rejected', 'auto_rejected'].includes(record.status))
         || record.status === activeFilter;
     if (!statusMatches) return false;
-    if (activeJurisdictionFilter !== 'all' && record.seller_jurisdiction !== activeJurisdictionFilter) return false;
     if (activeRiskFilter === 'all') return true;
     if (activeRiskFilter === 'duplicates') return Number(record.duplicate_count || 1) > 1;
     return record.risk_level === activeRiskFilter;
 }
 
+function matchesRegion(record) {
+    if (activeJurisdictionFilter !== 'domestic' || activeRegionFilter === 'all') return true;
+    if (activeRegionFilter === 'review_queue') {
+        return ['daejeon_chungnam_sejong', 'other_domestic'].includes(record.seller_region);
+    }
+    return record.seller_region === activeRegionFilter;
+}
+
+function matchesFilter(record) {
+    if (!matchesStatusAndRisk(record)) return false;
+    if (activeJurisdictionFilter !== 'all' && record.seller_jurisdiction !== activeJurisdictionFilter) return false;
+    return matchesRegion(record);
+}
+
+function updateRegionCounts() {
+    const domestic = records.filter(record =>
+        matchesStatusAndRisk(record) && record.seller_jurisdiction === 'domestic'
+    );
+    const count = region => domestic.filter(record => record.seller_region === region).length;
+    const priority = count('daejeon_chungnam_sejong');
+    const other = count('other_domestic');
+    document.getElementById('regionCountReview').textContent = priority + other;
+    document.getElementById('regionCountPriority').textContent = priority;
+    document.getElementById('regionCountOther').textContent = other;
+    document.getElementById('regionCountSeoul').textContent = count('seoul');
+    document.getElementById('regionCountGyeonggi').textContent = count('gyeonggi');
+    document.getElementById('regionCountUnknown').textContent = count('unknown');
+    document.getElementById('regionCountAll').textContent = domestic.length;
+}
+
 function createJurisdictionCell(record) {
     const cell = document.createElement('td');
+    const region = REGION_META[record.seller_region] || REGION_META.unknown;
+    const regionBadge = appendText(cell, 'span', region.label, `region-badge ${region.className}`);
+    regionBadge.title = (record.region_reasons || []).join('\n');
     const meta = JURISDICTION_META[record.seller_jurisdiction] || JURISDICTION_META.unknown;
-    const badge = appendText(cell, 'span', meta.label, `jurisdiction-badge ${meta.className}`);
+    const badge = appendText(cell, 'span', meta.label, `jurisdiction-badge ${meta.className} jurisdiction-secondary`);
     badge.title = (record.jurisdiction_reasons || []).join('\n');
-    appendText(cell, 'p', (record.jurisdiction_reasons || ['판정 근거 없음'])[0], 'cell-subtext');
+    appendText(cell, 'p', (record.region_reasons || record.jurisdiction_reasons || ['판정 근거 없음'])[0], 'cell-subtext');
     return cell;
 }
 
@@ -243,6 +285,9 @@ function createListingCell(record) {
     if (Number(record.duplicate_count || 1) > 1) {
         appendText(cell, 'span', `유사상품 ${record.duplicate_count}건`, 'duplicate-badge');
     }
+    if (record.priority_region_search && record.search_region_target) {
+        appendText(cell, 'span', `${record.search_region_target} 우선검색 발견`, 'priority-search-badge');
+    }
     if (record.description) {
         const clipped = record.description.length > 110 ? `${record.description.slice(0, 110)}…` : record.description;
         appendText(cell, 'p', clipped, 'listing-description');
@@ -289,6 +334,8 @@ function renderMonitoringList() {
     const visible = records
         .filter(matchesFilter)
         .sort((a, b) => {
+            const regionDifference = Number(a.region_sort_order || 9) - Number(b.region_sort_order || 9);
+            if (regionDifference) return regionDifference;
             const riskDifference = (riskOrder[b.risk_level] || 0) - (riskOrder[a.risk_level] || 0);
             if (riskDifference) return riskDifference;
             return new Date(b.last_seen || b.date) - new Date(a.last_seen || a.date);
@@ -334,6 +381,7 @@ function renderMonitoringList() {
 
 function renderDashboard() {
     renderStats();
+    updateRegionCounts();
     renderMonitoringList();
 }
 
@@ -342,16 +390,38 @@ function setActiveFilter(filter) {
     document.querySelectorAll('.filter-btn').forEach(button => {
         button.classList.toggle('active', button.dataset.filter === filter);
     });
+    updateRegionCounts();
     renderMonitoringList();
 }
 
 function setRiskFilter(filter) {
     activeRiskFilter = filter;
+    updateRegionCounts();
     renderMonitoringList();
 }
 
 function setJurisdictionFilter(filter) {
     activeJurisdictionFilter = filter;
+    if (filter !== 'domestic') {
+        activeRegionFilter = 'all';
+    }
+    updateRegionTabState();
+    renderDashboard();
+}
+
+function updateRegionTabState() {
+    document.querySelectorAll('.region-tab').forEach(button => {
+        const active = button.dataset.region === activeRegionFilter && activeJurisdictionFilter === 'domestic';
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+}
+
+function setRegionFilter(filter) {
+    activeRegionFilter = filter;
+    activeJurisdictionFilter = 'domestic';
+    document.getElementById('jurisdictionFilter').value = 'domestic';
+    updateRegionTabState();
     renderMonitoringList();
 }
 
@@ -380,7 +450,7 @@ function openReviewModal(recordId) {
     document.getElementById('review_seller_address').value = seller.address || '';
     document.getElementById('review_seller_source').value = seller.source_url || record.url || '';
     document.getElementById('review_jurisdiction_summary').textContent =
-        `${(JURISDICTION_META[record.seller_jurisdiction] || JURISDICTION_META.unknown).label} · ${(record.jurisdiction_reasons || ['판정 근거 없음'])[0]}`;
+        `${(REGION_META[record.seller_region] || REGION_META.unknown).label} · ${(record.region_reasons || record.jurisdiction_reasons || ['판정 근거 없음'])[0]}`;
     document.getElementById('review_seller_jurisdiction_override').value = record.seller_jurisdiction_override || '';
     document.getElementById('review_note').value = record.review_note || '';
     document.getElementById('reviewModal').classList.add('open');
@@ -478,7 +548,9 @@ function setupManualForm() {
 }
 
 function confirmedRecords() {
-    return records.filter(record => record.status === 'confirmed' && record.enforcement_status === 'actionable');
+    return records
+        .filter(record => record.status === 'confirmed' && record.enforcement_status === 'actionable')
+        .sort((a, b) => Number(a.region_sort_order || 9) - Number(b.region_sort_order || 9));
 }
 
 function initReportTab() {
@@ -630,6 +702,7 @@ async function loadSchedulerStatus() {
         let text = `다음 자동 검색: ${info.next_run_date}`;
         if (info.last_run) text += ` · 최근 ${formatDate(info.last_run)} (+${info.added_count || 0}건)`;
         if (info.metrics?.free_mode) text += ` · 무료 검색 ${info.metrics.search_queries || 0}회`;
+        if (info.metrics?.priority_region_queries) text += ` · 충청권 우선검색 ${info.metrics.priority_region_queries}회`;
         if (info.metrics?.discovered_products) text += ` · 상세링크 ${info.metrics.discovered_products}건 발견`;
         element.textContent = text;
         const sourceElement = document.getElementById('sourceHealthStatus');
@@ -706,6 +779,9 @@ async function boot() {
     setupReviewModal();
     document.querySelectorAll('.filter-btn').forEach(button => {
         button.addEventListener('click', () => setActiveFilter(button.dataset.filter));
+    });
+    document.querySelectorAll('.region-tab').forEach(button => {
+        button.addEventListener('click', () => setRegionFilter(button.dataset.region));
     });
     document.getElementById('riskFilter').addEventListener('change', event => setRiskFilter(event.target.value));
     document.getElementById('jurisdictionFilter').addEventListener('change', event => setJurisdictionFilter(event.target.value));

@@ -189,6 +189,44 @@ FOREIGN_ADDRESS_PATTERN = re.compile(
 )
 JURISDICTION_VALUES = {"domestic", "foreign", "unknown"}
 
+SELLER_REGION_VALUES = {
+    "daejeon_chungnam_sejong", "other_domestic", "seoul", "gyeonggi", "unknown", "foreign",
+}
+SELLER_REGION_LABELS = {
+    "daejeon_chungnam_sejong": "대전·충남·세종",
+    "other_domestic": "기타 국내지역",
+    "seoul": "서울",
+    "gyeonggi": "경기도",
+    "unknown": "소재지 미확인",
+    "foreign": "해외",
+}
+PRIORITY_REGION_SEARCH_QUERIES = [
+    ("대전 올무 판매", "올무", "대전"),
+    ("충남 올무 판매", "올무", "충남"),
+    ("세종 올무 판매", "올무", "세종"),
+    ("대전 스프링올무 판매", "스프링올무", "대전"),
+    ("충남 스프링올무 판매", "스프링올무", "충남"),
+    ("세종 스프링올무 판매", "스프링올무", "세종"),
+    ("대전 포획틀 판매", "포획틀", "대전"),
+    ("충남 포획틀 판매", "포획틀", "충남"),
+    ("세종 포획틀 판매", "포획틀", "세종"),
+]
+
+PRIORITY_REGION_PATTERN = re.compile(
+    r"(?:대전(?:광역시|시)?|세종(?:특별자치시|시)?|충청남도|충남|"
+    r"천안시?|공주시?|보령시?|아산시?|서산시?|논산시?|계룡시?|당진시?|"
+    r"금산군?|부여군?|서천군?|청양군?|홍성군?|예산군?|태안군?)",
+    re.I,
+)
+SEOUL_REGION_PATTERN = re.compile(r"(?:서울특별시|서울시|서울)", re.I)
+GYEONGGI_REGION_PATTERN = re.compile(
+    r"(?:경기도|경기|수원시?|용인시?|고양시?|화성시?|성남시?|부천시?|남양주시?|안산시?|"
+    r"평택시?|안양시?|시흥시?|파주시?|김포시?|의정부시?|광주(?!광역시)(?:시)?|하남시?|광명시?|군포시?|"
+    r"양주시?|오산시?|이천시?|안성시?|구리시?|의왕시?|포천시?|양평군?|여주시?|동두천시?|"
+    r"과천시?|가평군?|연천군?)",
+    re.I,
+)
+
 
 def _update_source_health(
     source: str,
@@ -983,6 +1021,62 @@ def assess_seller_jurisdiction(record: dict) -> dict:
     }
 
 
+def assess_seller_region(record: dict) -> dict:
+    """실제 판매자 주소를 기준으로 업무 우선순위용 소재지 그룹을 판정합니다."""
+    jurisdiction = record.get("seller_jurisdiction", "unknown")
+    address = _clean_text((record.get("seller_info") or {}).get("address", ""))
+
+    if jurisdiction == "foreign":
+        region = "foreign"
+        reason = "해외 판매자로 판정되어 국내 지역 분류에서 제외"
+    elif jurisdiction != "domestic":
+        region = "unknown"
+        reason = "국내 판매자 소재지가 확인되지 않음"
+    elif not address:
+        region = "unknown"
+        reason = "국내 판매자이나 주소가 없어 소재지 확인 필요"
+    else:
+        # 도로명에 다른 지역명이 들어간 경우보다 주소 앞부분의 광역지역을 우선합니다.
+        matches = []
+        for specificity, candidate_region, pattern in (
+            (0, "daejeon_chungnam_sejong", PRIORITY_REGION_PATTERN),
+            (0, "seoul", SEOUL_REGION_PATTERN),
+            (0, "gyeonggi", GYEONGGI_REGION_PATTERN),
+            (1, "other_domestic", DOMESTIC_ADDRESS_PATTERN),
+        ):
+            match = pattern.search(address)
+            if match:
+                matches.append((match.start(), specificity, candidate_region))
+        region = min(matches)[2] if matches else "unknown"
+        reason = {
+            "daejeon_chungnam_sejong": "판매자 주소가 대전·충남·세종에 해당",
+            "seoul": "판매자 주소가 서울에 해당",
+            "gyeonggi": "판매자 주소가 경기도에 해당",
+            "other_domestic": "판매자 주소가 서울·경기·대전·충남·세종 외 국내지역에 해당",
+            "unknown": "주소에서 국내 광역지역을 판별하지 못함",
+        }[region]
+
+    priority = {
+        "daejeon_chungnam_sejong": 1,
+        "other_domestic": 2,
+    }.get(region)
+    sort_order = {
+        "daejeon_chungnam_sejong": 1,
+        "other_domestic": 2,
+        "seoul": 3,
+        "gyeonggi": 4,
+        "unknown": 9,
+        "foreign": 10,
+    }[region]
+    return {
+        "seller_region": region,
+        "seller_region_label": SELLER_REGION_LABELS[region],
+        "enforcement_priority": priority,
+        "region_sort_order": sort_order,
+        "region_reasons": [reason],
+    }
+
+
 def normalize_record(record: dict) -> dict:
     record = dict(record or {})
     url = _safe_url(record.get("final_url") or record.get("url"))
@@ -1010,6 +1104,7 @@ def normalize_record(record: dict) -> dict:
     record["seller_info"] = normalized_seller
     record["seller"] = seller_to_legacy_text(normalized_seller)
     record.update(assess_seller_jurisdiction(record))
+    record.update(assess_seller_region(record))
 
     score_info = score_relevance(record)
     for key, value in score_info.items():
@@ -1342,10 +1437,20 @@ def build_free_search_plan(at: datetime | None = None) -> list[dict]:
     """무료 검색 호출량을 일정하게 유지하면서 일주일 안에 탐색 범위를 순환합니다."""
     at = at or datetime.now()
     day_index = at.timetuple().tm_yday
+    # 대전·충남·세종 검색을 먼저 실행합니다. 지역명은 발견 범위를 좁히는 데만 사용하고,
+    # 실제 소재지 분류는 상품 페이지에서 확인한 판매자 주소로 별도 판정합니다.
     plan = [
+        {
+            "source": "naver_web", "endpoint": "webkr", "query": query, "item": item,
+            "display": 30, "sort": "sim", "priority_region_search": True,
+            "search_region_target": region,
+        }
+        for query, item, region in PRIORITY_REGION_SEARCH_QUERIES
+    ]
+    plan.extend([
         {"source": "naver_web", "endpoint": "webkr", "query": query, "item": item, "display": 30, "sort": "sim"}
         for query, item in CORE_WEB_QUERIES
-    ]
+    ])
 
     # 고위험 표현은 일부를 매일 최신순으로도 확인해 오래된 인기 결과에 묻히는 것을 막습니다.
     recent_terms = CORE_WEB_QUERIES[:6]
@@ -1423,6 +1528,8 @@ def _search_naver_channel(spec: dict) -> list[dict]:
                 "item": spec["item"],
                 "search_query": spec["query"],
                 "search_sort": spec.get("sort", "sim"),
+                "priority_region_search": bool(spec.get("priority_region_search")),
+                "search_region_target": spec.get("search_region_target", ""),
                 "title": _clean_text(item.get("title", "")),
                 "snippet": _clean_text(item.get("description", "")),
                 "description": _clean_text(item.get("description", "")),
@@ -1673,6 +1780,8 @@ def run_scraper() -> dict:
     added = save_data(storable)
     metrics = {
         "search_queries": len(search_plan),
+        "priority_region_queries": sum(bool(spec.get("priority_region_search")) for spec in search_plan),
+        "priority_region_results": sum(bool(item.get("priority_region_search")) for item in all_items),
         "raw_results": len(all_items),
         "promising_results": len(promising_items),
         "discovered_products": len(discovered_items),

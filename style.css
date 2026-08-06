@@ -514,6 +514,62 @@ body {
     font-size: 0.88rem;
 }
 
+.region-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+.region-tab {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #475569;
+    border-radius: 9px;
+    padding: 0.62rem 0.78rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.region-tab span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.45rem;
+    height: 1.45rem;
+    margin-left: 0.28rem;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 0.72rem;
+}
+
+.region-tab:hover,
+.region-tab.active {
+    border-color: #2563eb;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.region-tab.active span {
+    background: #2563eb;
+    color: #fff;
+}
+
+.region-tab-seoul:not(.active) {
+    border-color: #ddd6fe;
+}
+
+.region-tab-gyeonggi:not(.active) {
+    border-color: #fed7aa;
+}
+
 .review-filters {
     display: flex;
     flex-wrap: wrap;
@@ -563,7 +619,9 @@ body {
 .seller-partial,
 .seller-blocked,
 .seller-complete,
-.jurisdiction-badge {
+.jurisdiction-badge,
+.region-badge,
+.priority-search-badge {
     display: inline-flex;
     align-items: center;
     width: max-content;
@@ -591,6 +649,26 @@ body {
 .jurisdiction-domestic { background: #dcfce7; color: #166534; }
 .jurisdiction-foreign { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 .jurisdiction-unknown { background: #fef3c7; color: #92400e; }
+
+.region-priority { background: #dbeafe; color: #1d4ed8; }
+.region-other-domestic { background: #dcfce7; color: #166534; }
+.region-seoul { background: #ede9fe; color: #6d28d9; }
+.region-gyeonggi { background: #ffedd5; color: #c2410c; }
+.region-unknown { background: #fef3c7; color: #92400e; }
+.region-foreign { background: #f1f5f9; color: #475569; }
+
+.jurisdiction-secondary {
+    margin-top: 0.38rem;
+    font-size: 0.68rem;
+    opacity: 0.9;
+}
+
+.priority-search-badge {
+    margin-top: 0.4rem;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
 
 .duplicate-badge {
     margin-top: 0.4rem;
@@ -781,8 +859,14 @@ body {
     }
 
     .review-filters,
+    .region-tabs,
     .modal-actions {
         width: 100%;
+    }
+
+    .region-tab {
+        flex: 1 1 calc(50% - 0.55rem);
+        text-align: center;
     }
 
     .seller-grid {
